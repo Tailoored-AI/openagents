@@ -1,0 +1,12 @@
+---
+paths:
+  - 'app/**/Integrations/**'
+---
+
+# Integrations
+
+## Integrations depend on the IntegrationProvider contract, never on Composio directly
+Actions and controllers type-hint App\Integrations\Contracts\IntegrationProvider and catch App\Integrations\Exceptions\IntegrationProviderException; App\Providers\IntegrationServiceProvider binds it to App\Integrations\Composio\ComposioProvider (the only Composio-aware class outside App\Http\Clients). Connections are team-scoped: the provider derives its own user id from the Team ("team_{id}" for Composio), so no Team method exposes a provider id. Rows store provider / provider_app_id / provider_connection_id / app_slug; always scope lookups by $provider->id() because rows from a former provider may remain. The catalog is whatever $provider->catalog() returns (Composio: the project's auth configs, enabled in its dashboard; nothing hard-coded). integrations.callback never trusts the query string: it asks $provider->callbackConnectionId($request) and re-reads status via SyncIntegrations, which also runs on every page view and deletes rows the provider returns null for. Page props are provider {name, dashboardUrl}, providerConfigured, providerError; user-facing copy interpolates $provider->name(). Feature tests keep faking Composio HTTP (Http::preventStrayRequests() + Http::fake() per endpoint); prove contract independence with mock(IntegrationProvider::class), see IntegrationTest. Owner and Admin hold TeamPermission::ManageIntegrations; members only view.
+
+## Connecting never destroys a working connection
+ConnectIntegration refuses an Active row (IntegrationAlreadyConnectedException, shown as an info toast) and only discards a pending or broken one AFTER the provider created the new link, best-effort (failure is report()ed). Rationale: deleting first let a failed link or abandoned OAuth screen leave a row marked Active with a dead provider_connection_id. Team::activeIntegration() and ComposioProvider::executeTool() both scope by $provider->id(); rows of a former provider are never usable. TeamIntegration::fromIntegration takes isAvailable: false only when the catalog actually loaded and no longer lists the app (or the row is foreign); during an outage rows stay available so Reconnect keeps working. store() reports an unknown app via an error toast + back(), not ValidationException, because the page never reads the errors prop.
